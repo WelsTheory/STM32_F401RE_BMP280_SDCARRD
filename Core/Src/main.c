@@ -140,8 +140,8 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
-  MX_SPI2_Init();
-  MX_FATFS_Init();
+  //MX_SPI2_Init();
+  //MX_FATFS_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
@@ -155,7 +155,7 @@ int main(void)
 	HAL_GPIO_WritePin(USER_LED_GPIO_Port, USER_LED_Pin, GPIO_PIN_RESET);
 
 	myprintf("\r\n ABS MEDICION TEMPERATURA - ESTE 11\r\n");
-	res = Mount_SD("/");
+	/*res = Mount_SD("/");
 	if(res != FR_OK)
 	{
 		myprintf("f_mount error (%i)\r\n", res);
@@ -171,7 +171,7 @@ int main(void)
 	Create_File(DATA_MONITOREO);
 	Unmount_SD("/");
 
-	myprintf("\r\n SD CARD OK! \r\n");
+	myprintf("\r\n SD CARD OK! \r\n");*/
 
 	//DS18B20_TIM_START();
 
@@ -213,10 +213,10 @@ int main(void)
 	int32_t raw_temp, raw_pressure;
 	float temp, pressure;
 	/* DS1307 */
-	DS1307_Init(&hi2c1);
+	//DS1307_Init(&hi2c1);
 	/* To test leap year correction. */
 
-	DS1307_SetDayOfWeek(4);
+	/*DS1307_SetDayOfWeek(4);
 	DS1307_SetTimeZone(-5, 00);
 	DS1307_SetDate(22);
 	DS1307_SetMonth(05);
@@ -229,7 +229,7 @@ int main(void)
 	year = DS1307_GetYear();
 	hour = DS1307_GetHour();
 	minute = DS1307_GetMinute();
-	second = DS1307_GetSecond();
+	second = DS1307_GetSecond();*/
 	/*
 	 * SIN PULSADOR
 	 * */
@@ -265,7 +265,7 @@ int main(void)
 			}
 			break;
 		case HOUR:
-			date = DS1307_GetDate();
+			/*date = DS1307_GetDate();
 			month = DS1307_GetMonth();
 			year = DS1307_GetYear();
 			hour = DS1307_GetHour();
@@ -274,11 +274,16 @@ int main(void)
 			sprintf(horario,"%04d-%02d-%02d, %02d:%02d:%02d,",
 					year, month, date, hour, minute, second);
 			myprintf("%04d-%02d-%02d %02d:%02d:%02d  \r\n",
-					year, month, date, hour, minute, second);
-			estados_abs = SAVE;
+					year, month, date, hour, minute, second);*/
+			//estados_abs = SAVE;
+			estados_abs = PRINT;
+			break;
+		case PRINT:
+			myprintf("Data: %s\r\n", data_temp);
+			estados_abs = WAIT;
 			break;
 		case SAVE:
-			char data_save[100];
+			/*char data_save[100];
 			sprintf(data_save," %s ,%s\r\n",horario, data_temp);
 			idx_t = idx_t + 1;
 			res = Mount_SD("/");
@@ -297,7 +302,7 @@ int main(void)
 				HAL_GPIO_WritePin(USER_LED_GPIO_Port, USER_LED_Pin, GPIO_PIN_SET);
 				while(1);
 			}
-			Unmount_SD("/");
+			Unmount_SD("/");*/
 			HAL_Delay(2000);
 			estados_abs = WAIT;
 			break;

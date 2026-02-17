@@ -47,13 +47,14 @@ typedef enum
 	WORK,
 	HOUR,
 	SAVE,
-	WAIT
+	WAIT,
+  PRINT
 }state_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-#define TOTAL_COUNT     57
+#define TOTAL_COUNT     300
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
