@@ -50,6 +50,15 @@ typedef enum
 	WAIT,
   PRINT
 }state_t;
+
+typedef struct {
+	uint8_t  sec;
+	uint8_t  min;
+	uint8_t  hour;
+	uint8_t  day;
+	uint8_t  month;
+	uint16_t year;
+} datetime_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
