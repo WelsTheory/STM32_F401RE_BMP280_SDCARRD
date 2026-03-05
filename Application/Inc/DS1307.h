@@ -16,7 +16,9 @@
 #define DS1307_REG_CONTROL 	0x07
 #define DS1307_REG_UTC_HR	0x08
 #define DS1307_REG_UTC_MIN	0x09
-#define DS1307_REG_CENT    	0x10
+/* NOTA: DS1307_REG_CENT (0x10) no es parte del DS1307 estándar
+ * El DS1307 solo maneja años 2000-2099 usando el registro YEAR (0x06) */
+#define DS1307_REG_CENT    	0x10  /* No estándar - no usar */
 #define DS1307_REG_RAM   	0x11
 #define DS1307_TIMEOUT		1000
 /*----------------------------------------------------------------------------*/

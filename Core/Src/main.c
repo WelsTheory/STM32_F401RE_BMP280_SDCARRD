@@ -27,18 +27,19 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
 #include "DS18B20.h"
 #include "fatfs.h"
 #include "File_Handling_RTOS.h"
 #include "SSD1306.h"
 #include "Text_Font.h"
 #include "BMP280.h"
-#include "DS1307.h"
+// #include "DS1307.h"  // Ya no se usa DS1307, se usa registro de compilación
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-//#define SD_CARD_OK	1
+#define SD_CARD_OK	1
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -60,90 +61,159 @@ extern UART_HandleTypeDef huart2;
 extern TIM_HandleTypeDef htim1;
 extern TIM_HandleTypeDef htim2;
 
-/* Software RTC - default: 17/02/2026 00:00:00 */
-volatile datetime_t sw_rtc = {0, 0, 0, 17, 2, 2026};
+/* DS1307 RTC - Hardware I2C RTC - YA NO SE USA */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-/* USER CODE END PFP */
+/* USER CODE END FP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define DATA_MONITOREO 		"ESTE_11.TXT"
+#define DATA_MONITOREO 		"NORTE_11.TXT"
 
-/* ---------- Software RTC ---------- */
-void SW_RTC_Increment(void)
+/* ========== DS1307 RTC - DESHABILITADO - Se usa registro de compilación ========== */
+/*
+// Configuracion DS1307 - Descomentar para FORZAR configuracion del RTC en cada inicio
+// Usar solo si necesitas actualizar la hora manualmente
+// #define FORCE_DS1307_CONFIG
+
+// ---------- DS1307 RTC Functions ----------
+// Funcion para forzar escritura directa del DS1307 (bypass Clock Halt)
+void DS1307_ForceWrite(uint16_t year, uint8_t month, uint8_t day,
+                       uint8_t hour, uint8_t minute, uint8_t second)
 {
-	const uint8_t days_in_month[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+	myprintf("Forzando escritura directa al DS1307 (bypass Clock Halt)...\r\n");
 
-	sw_rtc.sec++;
-	if(sw_rtc.sec >= 60) {
-		sw_rtc.sec = 0;
-		sw_rtc.min++;
-		if(sw_rtc.min >= 60) {
-			sw_rtc.min = 0;
-			sw_rtc.hour++;
-			if(sw_rtc.hour >= 24) {
-				sw_rtc.hour = 0;
-				sw_rtc.day++;
-				uint8_t max_day = days_in_month[sw_rtc.month - 1];
-				if(sw_rtc.month == 2) {
-					uint16_t y = sw_rtc.year;
-					if((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0))
-						max_day = 29;
-				}
-				if(sw_rtc.day > max_day) {
-					sw_rtc.day = 1;
-					sw_rtc.month++;
-					if(sw_rtc.month > 12) {
-						sw_rtc.month = 1;
-						sw_rtc.year++;
-					}
-				}
-			}
-		}
+	// Escribir directamente cada registro con valores en BCD
+	uint8_t data[8];
+	data[0] = 0x00;  // Dirección de inicio (SECOND)
+	data[1] = DS1307_EncodeBCD(second) & 0x7F;  // SECOND con CH=0 (bit 7 = 0)
+	data[2] = DS1307_EncodeBCD(minute);         // MINUTE
+	data[3] = DS1307_EncodeBCD(hour);           // HOUR (24h mode)
+	data[4] = 0x01;                             // DOW (día de semana, 1=Domingo)
+	data[5] = DS1307_EncodeBCD(day);            // DATE
+	data[6] = DS1307_EncodeBCD(month);          // MONTH
+	data[7] = DS1307_EncodeBCD(year - 2000);    // YEAR (00-99)
+
+	// Escribir todos los registros de tiempo en una sola transacción
+	HAL_StatusTypeDef status = HAL_I2C_Master_Transmit(&hi2c1, DS1307_I2C_ADDR << 1, data, 8, 1000);
+
+	if(status == HAL_OK)
+	{
+		myprintf("Escritura I2C OK\r\n");
+		HAL_Delay(50);
+
+		// Verificar
+		myprintf("Verificando escritura...\r\n");
+		uint8_t sec_reg = DS1307_GetRegByte(DS1307_REG_SECOND);
+		myprintf("  SECOND reg = 0x%02X (CH bit=%d)\r\n", sec_reg, (sec_reg >> 7) & 1);
+	}
+	else
+	{
+		myprintf("ERROR escritura I2C: %d\r\n", status);
 	}
 }
 
-/* Inicializa sw_rtc con la fecha/hora de compilacion
- * __DATE__ = "Mmm DD YYYY"  ej: "Feb 17 2026"
- * __TIME__ = "HH:MM:SS"     ej: "14:30:00"      */
-void SW_RTC_Init_CompileTime(void)
+// Funcion de debug: Lee y muestra registros raw del DS1307
+void DS1307_DebugRegisters(void)
+{
+	myprintf("DS1307 Registros RAW (hex):\r\n");
+	myprintf("  SEC  [0x00]: 0x%02X (BCD)\r\n", DS1307_GetRegByte(DS1307_REG_SECOND));
+	myprintf("  MIN  [0x01]: 0x%02X (BCD)\r\n", DS1307_GetRegByte(DS1307_REG_MINUTE));
+	myprintf("  HOUR [0x02]: 0x%02X (BCD)\r\n", DS1307_GetRegByte(DS1307_REG_HOUR));
+	myprintf("  DOW  [0x03]: 0x%02X\r\n", DS1307_GetRegByte(DS1307_REG_DOW));
+	myprintf("  DATE [0x04]: 0x%02X (BCD)\r\n", DS1307_GetRegByte(DS1307_REG_DATE));
+	myprintf("  MON  [0x05]: 0x%02X (BCD)\r\n", DS1307_GetRegByte(DS1307_REG_MONTH));
+	myprintf("  YEAR [0x06]: 0x%02X (BCD, 00-99 = 2000-2099)\r\n", DS1307_GetRegByte(DS1307_REG_YEAR));
+	myprintf("  CTRL [0x07]: 0x%02X\r\n", DS1307_GetRegByte(DS1307_REG_CONTROL));
+
+	// Decodificacion BCD de valores importantes
+	myprintf("Decodificado: %02d:%02d:%02d  %02d/%02d/20%02d\r\n",
+			DS1307_DecodeBCD(DS1307_GetRegByte(DS1307_REG_HOUR) & 0x3F),
+			DS1307_DecodeBCD(DS1307_GetRegByte(DS1307_REG_MINUTE)),
+			DS1307_DecodeBCD(DS1307_GetRegByte(DS1307_REG_SECOND) & 0x7F),
+			DS1307_DecodeBCD(DS1307_GetRegByte(DS1307_REG_DATE)),
+			DS1307_DecodeBCD(DS1307_GetRegByte(DS1307_REG_MONTH)),
+			DS1307_DecodeBCD(DS1307_GetRegByte(DS1307_REG_YEAR)));
+}
+
+// Funcion opcional para configurar la hora del DS1307 con la fecha/hora de compilacion
+// Descomenta la llamada a esta funcion si necesitas actualizar el RTC
+// __DATE__ = "Mmm DD YYYY"  ej: "Feb 17 2026"
+// __TIME__ = "HH:MM:SS"     ej: "14:30:00"
+void DS1307_SetCompileTime(void)
 {
 	static const char mon_names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
 	static const char comp_date[] = __DATE__;
 	static const char comp_time[] = __TIME__;
 
-	/* Mes */
+	uint8_t month, day, hour, minute, second;
+	uint16_t year;
+
+	// Mes
 	char mon_str[4] = {comp_date[0], comp_date[1], comp_date[2], '\0'};
 	const char *found = strstr(mon_names, mon_str);
-	sw_rtc.month = (found != NULL) ? (uint8_t)((found - mon_names) / 3 + 1) : 1;
+	month = (found != NULL) ? (uint8_t)((found - mon_names) / 3 + 1) : 1;
 
-	/* Dia (puede tener espacio inicial para dias de 1 digito) */
-	sw_rtc.day = (comp_date[4] == ' ')
-					? (uint8_t)(comp_date[5] - '0')
-							: (uint8_t)((comp_date[4] - '0') * 10 + (comp_date[5] - '0'));
+	// Dia (puede tener espacio inicial para dias de 1 digito)
+	day = (comp_date[4] == ' ')
+			? (uint8_t)(comp_date[5] - '0')
+			: (uint8_t)((comp_date[4] - '0') * 10 + (comp_date[5] - '0'));
 
-	/* Año */
-	sw_rtc.year = (uint16_t)(
+	// Año
+	year = (uint16_t)(
 			(comp_date[7] - '0') * 1000 +
 			(comp_date[8] - '0') * 100  +
 			(comp_date[9] - '0') * 10   +
 			(comp_date[10]- '0'));
 
-	/* Hora */
-	sw_rtc.hour = (uint8_t)((comp_time[0] - '0') * 10 + (comp_time[1] - '0'));
-	sw_rtc.min  = (uint8_t)((comp_time[3] - '0') * 10 + (comp_time[4] - '0'));
-	sw_rtc.sec  = (uint8_t)((comp_time[6] - '0') * 10 + (comp_time[7] - '0'));
+	// Hora
+	hour   = (uint8_t)((comp_time[0] - '0') * 10 + (comp_time[1] - '0'));
+	minute = (uint8_t)((comp_time[3] - '0') * 10 + (comp_time[4] - '0'));
+	second = (uint8_t)((comp_time[6] - '0') * 10 + (comp_time[7] - '0'));
 
-	myprintf("RTC init: %04d-%02d-%02d %02d:%02d:%02d (compile time)\r\n",
-			sw_rtc.year, sw_rtc.month, sw_rtc.day,
-			sw_rtc.hour, sw_rtc.min,  sw_rtc.sec);
+	// Configurar el DS1307
+	myprintf("Escribiendo: Año=%d, Mes=%d, Dia=%d, Hora=%d:%d:%d\r\n",
+			year, month, day, hour, minute, second);
+
+	// Primero asegurar que el reloj esté detenido para escritura segura
+	DS1307_SetClockHalt(1);
+	HAL_Delay(10);
+
+	// Escribir todos los registros
+	DS1307_SetYear(year);
+	DS1307_SetMonth(month);
+	DS1307_SetDate(day);
+	DS1307_SetHour(hour);
+	DS1307_SetMinute(minute);
+	DS1307_SetSecond(second);
+
+	// Iniciar el reloj
+	DS1307_SetClockHalt(0);
+	HAL_Delay(50);
+
+	// Verificar lo que realmente se escribio
+	myprintf("DS1307 RTC configurado: %04d-%02d-%02d %02d:%02d:%02d\r\n",
+			year, month, day, hour, minute, second);
+	myprintf("Verificando lectura inmediata...\r\n");
+	DS1307_DebugRegisters();
+
+	// Verificar que el reloj esté corriendo
+	if(DS1307_GetClockHalt() != 0)
+	{
+		myprintf("ERROR: El reloj sigue detenido despues de configurar!\r\n");
+	}
+	else
+	{
+		myprintf("OK: Reloj corriendo correctamente.\r\n");
+	}
 }
-/* ---------------------------------- */
+// ----------------------------------
+*/
+/* ========== FIN DS1307 DESHABILITADO ========== */
 
 void myprintf(const char *fmt, ...) {
 	static char buffer[256];
@@ -171,16 +241,6 @@ volatile uint32_t counter_time = 0;
 state_t estados_abs;
 
 float pressure, temp_bmp, humidity;
-
-uint8_t date = 0;
-uint8_t month = 0;
-uint16_t year = 0;
-uint8_t dow = 0;
-uint8_t hour = 0;
-uint8_t minute = 0;
-uint8_t second = 0;
-int8_t zone_hr = 0;
-uint8_t zone_min = 0;
 
 /* USER CODE END 0 */
 
@@ -230,11 +290,11 @@ int main(void)
 	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(USER_LED_GPIO_Port, USER_LED_Pin, GPIO_PIN_RESET);
 
-	myprintf("\r\nABS MEDICION TEMPERATURA - ESTE 11\r\n");
+	myprintf("\r\nABS MEDICION TEMPERATURA \r\n");
 
 	/* SD Card - crear/verificar archivo de log */
 #ifdef SD_CARD_OK
-	/*res = Mount_SD("/");
+	res = Mount_SD("/");
 	if(res != FR_OK)
 	{
 		myprintf("SD mount error (%i) - sin SD card\r\n", res);
@@ -250,11 +310,178 @@ int main(void)
 		}
 		Unmount_SD("/");
 		myprintf("SD card OK\r\n");
-	}*/
+	}
+
 #endif
 
-	/* Inicializar RTC con fecha/hora de compilacion */
-	SW_RTC_Init_CompileTime();
+	/* ========== DS1307 RTC - DESHABILITADO ========== */
+	/*
+	// Inicializar DS1307 RTC
+	myprintf("\r\n--- Inicializando DS1307 RTC ---\r\n");
+
+	// Escaneo de bus I2C para diagnóstico
+	myprintf("Escaneando bus I2C1...\r\n");
+	uint8_t devices_found = 0;
+	for(uint8_t addr = 1; addr < 128; addr++)
+	{
+		if(HAL_I2C_IsDeviceReady(&hi2c1, addr << 1, 1, 10) == HAL_OK)
+		{
+			myprintf("  Dispositivo encontrado en 0x%02X\r\n", addr);
+			devices_found++;
+		}
+	}
+	myprintf("Dispositivos I2C encontrados: %d\r\n\r\n", devices_found);
+
+	// Test de comunicacion I2C con DS1307
+	if(HAL_I2C_IsDeviceReady(&hi2c1, DS1307_I2C_ADDR << 1, 3, 1000) == HAL_OK)
+	{
+		myprintf("DS1307 detectado en I2C (0x%02X)\r\n", DS1307_I2C_ADDR);
+
+		// Verificar Clock Halt ANTES de Init
+		uint8_t halt_before = DS1307_GetClockHalt();
+		myprintf("Clock Halt Bit (antes de Init): %d %s\r\n", halt_before, halt_before ? "(DETENIDO)" : "(CORRIENDO)");
+
+		// Inicializar y forzar inicio del reloj
+		DS1307_Init(&hi2c1);
+		HAL_Delay(10);
+
+		// Verificar Clock Halt DESPUES de Init
+		uint8_t halt_after = DS1307_GetClockHalt();
+		myprintf("Clock Halt Bit (despues de Init): %d %s\r\n", halt_after, halt_after ? "(DETENIDO)" : "(CORRIENDO)");
+
+		// Si sigue detenido, forzar limpieza del bit
+		if(halt_after != 0)
+		{
+			myprintf("ADVERTENCIA: Reloj sigue detenido. Forzando inicio...\r\n");
+			DS1307_SetClockHalt(0);
+			HAL_Delay(10);
+			uint8_t halt_final = DS1307_GetClockHalt();
+			myprintf("Clock Halt Bit (despues de forzar): %d %s\r\n", halt_final, halt_final ? "(AUN DETENIDO - PROBLEMA HW)" : "(CORRIENDO OK)");
+
+			if(halt_final != 0)
+			{
+				myprintf("\r\n*** PROBLEMA DE HARDWARE DETECTADO ***\r\n");
+				myprintf("El DS1307 no responde a comandos de escritura.\r\n");
+				myprintf("Posibles causas:\r\n");
+				myprintf("  1. Falta bateria CR2032 en el DS1307\r\n");
+				myprintf("  2. Resistencias pull-up faltantes en SDA/SCL (necesita 4.7k ohm)\r\n");
+				myprintf("  3. Conexiones incorrectas o cables sueltos\r\n");
+				myprintf("  4. DS1307 defectuoso\r\n");
+				myprintf("  5. Conflicto con BMP280 en el mismo bus I2C\r\n");
+				myprintf("\r\nVerifica las conexiones:\r\n");
+				myprintf("  DS1307 VCC  -> 5V o 3.3V\r\n");
+				myprintf("  DS1307 GND  -> GND\r\n");
+				myprintf("  DS1307 SDA  -> PB9 (con pull-up 4.7k a VCC)\r\n");
+				myprintf("  DS1307 SCL  -> PB8 (con pull-up 4.7k a VCC)\r\n");
+				myprintf("  DS1307 BAT  -> Bateria CR2032 (+)\r\n");
+				myprintf("  DS1307 GND  -> Bateria CR2032 (-)\r\n");
+				myprintf("***********************************\r\n\r\n");
+			}
+		}
+
+		// Leer fecha/hora actual
+		uint16_t year = DS1307_GetYear();
+		uint8_t month = DS1307_GetMonth();
+		uint8_t day = DS1307_GetDate();
+		uint8_t hour = DS1307_GetHour();
+		uint8_t minute = DS1307_GetMinute();
+		uint8_t second = DS1307_GetSecond();
+
+		myprintf("Fecha/Hora leida: %04d-%02d-%02d %02d:%02d:%02d\r\n",
+				year, month, day, hour, minute, second);
+
+		// Mostrar registros raw para debug
+		DS1307_DebugRegisters();
+
+#ifdef FORCE_DS1307_CONFIG
+		// Configuracion forzada habilitada
+		myprintf("FORCE_DS1307_CONFIG activo. Configurando RTC...\r\n");
+		DS1307_SetCompileTime();
+		HAL_Delay(100);
+		myprintf("RTC configurado. Nueva fecha/hora: %04d-%02d-%02d %02d:%02d:%02d\r\n",
+				DS1307_GetYear(), DS1307_GetMonth(), DS1307_GetDate(),
+				DS1307_GetHour(), DS1307_GetMinute(), DS1307_GetSecond());
+#else
+		// Detectar si el RTC necesita configuracion inicial
+		// Si el año es inválido (2000-2024 no tiene sentido, o fuera de rango), configurar
+		// Detectar año corrupto: 2080 indica problema de lectura
+		bool year_corrupted = (year == 2080 || year == 2000);
+
+		if(year < 2025 || year > 2099 || month == 0 || month > 12 || day == 0 || day > 31 || year_corrupted)
+		{
+			myprintf("ADVERTENCIA: RTC con valores invalidos (año=%d). Configurando...\r\n", year);
+
+			// Limpiar registro de control (puede tener basura)
+			DS1307_SetRegByte(DS1307_REG_CONTROL, 0x00);
+			HAL_Delay(10);
+
+			// Intento 1: Configurar con funciones normales
+			myprintf("Intento 1: Configuracion normal...\r\n");
+			DS1307_SetCompileTime();
+			HAL_Delay(100);
+
+			// Leer de nuevo para verificar
+			uint16_t new_year = DS1307_GetYear();
+			uint8_t new_month = DS1307_GetMonth();
+			uint8_t new_day = DS1307_GetDate();
+			uint8_t new_hour = DS1307_GetHour();
+			uint8_t new_min = DS1307_GetMinute();
+			uint8_t new_sec = DS1307_GetSecond();
+
+			myprintf("RTC configurado. Nueva fecha/hora: %04d-%02d-%02d %02d:%02d:%02d\r\n",
+					new_year, new_month, new_day, new_hour, new_min, new_sec);
+
+			// Si sigue fallando, intentar escritura forzada
+			if(new_year < 2025 || new_year > 2099 || DS1307_GetClockHalt() != 0)
+			{
+				myprintf("FALLO: Configuracion normal no funciono. Intentando escritura forzada...\r\n");
+
+				// Obtener fecha/hora de compilación nuevamente
+				static const char mon_names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+				static const char comp_date[] = __DATE__;
+				static const char comp_time[] = __TIME__;
+
+				char mon_str[4] = {comp_date[0], comp_date[1], comp_date[2], '\0'};
+				const char *found = strstr(mon_names, mon_str);
+				uint8_t m = (found != NULL) ? (uint8_t)((found - mon_names) / 3 + 1) : 3;
+				uint8_t d = (comp_date[4] == ' ') ? (uint8_t)(comp_date[5] - '0')
+						: (uint8_t)((comp_date[4] - '0') * 10 + (comp_date[5] - '0'));
+				uint16_t y = (uint16_t)((comp_date[7] - '0') * 1000 + (comp_date[8] - '0') * 100
+						+ (comp_date[9] - '0') * 10 + (comp_date[10]- '0'));
+				uint8_t h = (uint8_t)((comp_time[0] - '0') * 10 + (comp_time[1] - '0'));
+				uint8_t min = (uint8_t)((comp_time[3] - '0') * 10 + (comp_time[4] - '0'));
+				uint8_t s = (uint8_t)((comp_time[6] - '0') * 10 + (comp_time[7] - '0'));
+
+				DS1307_ForceWrite(y, m, d, h, min, s);
+
+				HAL_Delay(100);
+				myprintf("Verificacion final: %04d-%02d-%02d %02d:%02d:%02d\r\n",
+						DS1307_GetYear(), DS1307_GetMonth(), DS1307_GetDate(),
+						DS1307_GetHour(), DS1307_GetMinute(), DS1307_GetSecond());
+			}
+		}
+		else
+		{
+			myprintf("DS1307 RTC OK!\r\n");
+		}
+#endif
+	}
+	else
+	{
+		myprintf("ERROR: DS1307 NO detectado en I2C!\r\n");
+		myprintf("Verificar conexiones: SDA, SCL, VCC, GND\r\n");
+		myprintf("Direccion I2C esperada: 0x%02X (0x%02X shifted)\r\n",
+				DS1307_I2C_ADDR, DS1307_I2C_ADDR << 1);
+	}
+	myprintf("--- Fin inicializacion DS1307 ---\r\n\r\n");
+	*/
+
+	/* Usar registro de compilacion en lugar de DS1307 */
+	myprintf("\r\n--- Usando registro de compilacion ---\r\n");
+	myprintf("Fecha de compilacion: %s\r\n", __DATE__);
+	myprintf("Hora de compilacion: %s\r\n", __TIME__);
+	myprintf("--- Fin registro de compilacion ---\r\n\r\n");
+
 	estados_abs = OFF;
 
 	/* SSD1306 */
@@ -323,9 +550,8 @@ int main(void)
 			}
 			break;
 		case HOUR:
-			sprintf(horario, "%04d-%02d-%02d %02d:%02d:%02d",
-					sw_rtc.year, sw_rtc.month, sw_rtc.day,
-					sw_rtc.hour, sw_rtc.min,  sw_rtc.sec);
+			/* Usar fecha y hora de compilacion (ya no se usa DS1307) */
+			sprintf(horario, "%s, %s", __DATE__, __TIME__);
 #ifdef SD_CARD_OK
 			estados_abs = SAVE;
 #else
@@ -450,7 +676,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	SW_RTC_Increment(); /* 1 tick = 1 segundo */
+	/* Timer tick cada 1 segundo - Se usa registro de compilacion */
 	counter_time++;
 	if(counter_time == TOTAL_COUNT)
 	{

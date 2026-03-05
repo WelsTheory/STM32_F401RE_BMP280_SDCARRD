@@ -105,8 +105,8 @@ uint8_t DS1307_GetMonth(void) {
  * @return Year, 2000 to 2099.
  */
 uint16_t DS1307_GetYear(void) {
-	uint16_t cen = DS1307_GetRegByte(DS1307_REG_CENT) * 100;
-	return DS1307_DecodeBCD(DS1307_GetRegByte(DS1307_REG_YEAR)) + cen;
+	/* DS1307 standard: YEAR register (0x06) holds 00-99 for years 2000-2099 */
+	return 2000 + DS1307_DecodeBCD(DS1307_GetRegByte(DS1307_REG_YEAR));
 }
 
 /**
@@ -180,8 +180,10 @@ void DS1307_SetMonth(uint8_t month) {
  * @param year Year, 2000 to 2099.
  */
 void DS1307_SetYear(uint16_t year) {
-	DS1307_SetRegByte(DS1307_REG_CENT, year / 100);
-	DS1307_SetRegByte(DS1307_REG_YEAR, DS1307_EncodeBCD(year % 100));
+	/* DS1307 standard: YEAR register (0x06) holds 00-99 for years 2000-2099 */
+	if(year >= 2000 && year <= 2099) {
+		DS1307_SetRegByte(DS1307_REG_YEAR, DS1307_EncodeBCD(year - 2000));
+	}
 }
 
 /**
@@ -206,7 +208,8 @@ void DS1307_SetMinute(uint8_t minute) {
  */
 void DS1307_SetSecond(uint8_t second) {
 	uint8_t ch = DS1307_GetClockHalt();
-	DS1307_SetRegByte(DS1307_REG_SECOND, DS1307_EncodeBCD(second | ch));
+	/* Codificar segundo en BCD y preservar Clock Halt bit en bit 7 */
+	DS1307_SetRegByte(DS1307_REG_SECOND, DS1307_EncodeBCD(second) | (ch << 7));
 }
 
 /**
